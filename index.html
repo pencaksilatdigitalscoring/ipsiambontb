@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Timbang Badan - Pencak Silat Digital Scoring</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <!-- HTML2PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap');
+        body { 
+            font-family: 'Montserrat', sans-serif; 
+            background-color: #f1f5f9; 
+            color: #1e293b; 
+            margin: 0; 
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        /* Notifikasi Simpan */
+        .save-notif { 
+            position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 15px 25px; 
+            border-radius: 15px; font-weight: bold; transform: translateX(200%); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
+            z-index: 60000; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .save-notif.show { transform: translateX(0); }
+
+        /* Report Styles for PDF (Presisi A4 Landscape, Anti Terpotong di Mobile) */
+        #print-section { 
+            display: none; 
+            width: 1122px; /* Set lebar presisi standar A4 Landscape di 96 DPI */
+            background-color: white; 
+            position: absolute;
+            left: -9999px; /* Sembunyikan dari layar */
+        }
+        .report-page { 
+            background: white; 
+            width: 100%; 
+            padding: 30px; 
+            box-sizing: border-box; 
+            color: #000; 
+            font-family: 'Times New Roman', serif; 
+        }
+        .report-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 15px; 
+            font-size: 11px; 
+            table-layout: fixed; /* Kunci lebar kolom */
+        }
+        .report-table th, .report-table td { 
+            border: 1px solid #000; 
+            padding: 8px; 
+            text-align: center; 
+            vertical-align: middle; 
+            word-wrap: break-word; 
+            overflow: hidden;
+        }
+        .report-table th { background-color: #f1f5f9; font-weight: bold; text-transform: uppercase; }
+        .report-table tr { page-break-inside: avoid; } /* Hindari potong baris tabel */
+        .report-header { text-align: center; margin-bottom: 20px; border-bottom: 3px double #000; padding-bottom: 10px; }
+        
+        .status-sah { color: #059669; font-weight: 900; }
+        .status-gagal { color: #e11d48; font-weight: 900; }
+        
+        .input-tb {
+            width: 100%; text-align: center; font-weight: 800; padding: 10px; border-radius: 8px; border: 2px solid #e2e8f0; outline: none; transition: all 0.3s;
+        }
+        .input-tb:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2); }
+
+        /* Loader */
+        #loader { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .spinner { border: 4px solid rgba(0,0,0,0.1); width: 40px; height: 40px; border-radius: 50%; border-left-color: #0ea5e9; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Animasi Indikator */
+        .pulse-green { animation: pulseGreen 2s infinite; }
+        @keyframes pulseGreen {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <div id="loader">
+        <div class="spinner mb-4"></div>
+        <p class="font-bold text-slate-500 uppercase text-xs tracking-widest">Memuat Data Server...</p>
+    </div>
+
+    <div id="save-ani" class="save-notif"><i class="fas fa-check-circle mr-2"></i> Data Tersimpan!</div>
+
+    <!-- HEADER -->
+    <header class="bg-white shadow-sm shrink-0 z-20">
+        <div class="p-4 flex justify-between items-center bg-sky-700 text-white">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-weight text-2xl"></i>
+                <div>
+                    <h1 class="font-black uppercase text-sm leading-tight tracking-wider">Timbang Badan</h1>
+                    <p class="text-[9px] font-bold opacity-80 uppercase">Pencak Silat Digital Scoring</p>
+                </div>
+            </div>
+            <button onclick="exportPDF()" class="bg-white text-sky-800 px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition-transform flex items-center gap-2">
+                <i class="fas fa-print text-red-500"></i> Cetak Laporan
+            </button>
+        </div>
+        
+        <!-- FILTER BAR -->
+        <div class="p-3 bg-white flex flex-wrap gap-2 border-b border-slate-200">
+            <select id="f-cat" onchange="renderMatches()" class="flex-1 min-w-[100px] bg-slate-50 border border-slate-200 rounded-lg p-2 text-[10px] font-bold uppercase outline-none text-slate-600 focus:border-sky-500">
+                <option value="SEMUA">Semua Usia</option>
+                <option>PRA USIA DINI</option><option>USIA DINI</option><option>PRA REMAJA</option><option>REMAJA</option><option>DEWASA</option>
+            </select>
+            <select id="f-kelas" onchange="renderMatches()" class="flex-1 min-w-[80px] bg-slate-50 border border-slate-200 rounded-lg p-2 text-[10px] font-bold uppercase outline-none text-slate-600 focus:border-sky-500">
+                <option value="SEMUA">Semua Kelas</option>
+            </select>
+            <select id="f-gender" onchange="renderMatches()" class="flex-1 min-w-[80px] bg-slate-50 border border-slate-200 rounded-lg p-2 text-[10px] font-bold uppercase outline-none text-slate-600 focus:border-sky-500">
+                <option value="SEMUA">Semua Gender</option>
+                <option>PUTRA</option><option>PUTRI</option>
+            </select>
+        </div>
+        <div class="px-4 py-2 bg-slate-100 flex justify-between items-center text-[10px] font-bold text-slate-500 uppercase">
+            <span>Daftar Peserta</span>
+            <span id="match-counter" class="bg-sky-200 text-sky-800 px-3 py-1 rounded-full shadow-sm">Total: 0 Partai</span>
+        </div>
+    </header>
+
+    <!-- CONTENT BODY (MOBILE FRIENDLY CARDS) -->
+    <main class="flex-1 overflow-y-auto custom-scroll p-4 pb-20">
+        <div id="matches-container" class="max-w-4xl mx-auto space-y-5">
+            <!-- Cards Rendered by JS -->
+        </div>
+    </main>
+
+    <!-- HIDDEN PDF REPORT SECTION (Lebar 1122px agar render A4 Landscape sempurna dari HP) -->
+    <div id="print-section">
+        <div id="pdf-content" class="report-page">
+            <div class="report-header">
+                <h1 style="font-size: 18px; font-weight: 900; margin: 0;">LAPORAN TIMBANG BADAN</h1>
+                <p style="font-size: 11px; margin: 5px 0 0 0; font-weight: bold;">KEJUARAAN PENCAK SILAT DIGITAL SCORING</p>
+                <p id="pdf-filter-info" style="font-size: 10px; margin: 5px 0 0 0;"></p>
+            </div>
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">Partai</th>
+                        <th style="width: 18%;">Kategori (Batas Berat)</th>
+                        <th style="width: 31%;">Sudut Biru (Nama / Berat / Status)</th>
+                        <th style="width: 31%;">Sudut Merah (Nama / Berat / Status)</th>
+                        <th style="width: 15%;">Keterangan / Paraf</th>
+                    </tr>
+                </thead>
+                <tbody id="pdf-table-body">
+                    <!-- PDF Data -->
+                </tbody>
+            </table>
+            <div style="margin-top: 50px; display: flex; justify-content: flex-end; font-size: 10px; font-weight: bold; text-align: center;">
+                <div style="width: 200px;">
+                    PETUGAS TIMBANG BADAN
+                    <div style="height: 60px;"></div>
+                    (......................................................)
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // Konfigurasi Firebase dari sistem utama
+    const firebaseConfig = {
+      apiKey: "AIzaSyDuC-mjc2LiPQ4Ouiq5DBsMPPad-pPb3h0",
+      authDomain: "kejurkot-ambon.firebaseapp.com",
+      databaseURL: "https://kejurkot-ambon-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "kejurkot-ambon",
+      storageBucket: "kejurkot-ambon.firebasestorage.app",
+      messagingSenderId: "545075134619",
+      appId: "1:545075134619:web:ec14b7287c636ebd80063e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+    const dbRef = ref(database, 'pencak_scoring_state/matches');
+
+    window.allMatches = [];
+
+    // FUNGSI PENGHITUNG BATAS BERAT BADAN OTOMATIS
+    window.getWeightLimits = function(cat, kelas, gender) {
+        cat = (cat || "").toUpperCase().trim(); kelas = (kelas || "").toUpperCase().trim(); gender = (gender || "").toUpperCase().trim();
+        if (cat.includes("USIA DINI")) {
+            switch(kelas) { case 'A': return { min: 26, max: 28, strictMin: false }; case 'B': return { min: 28, max: 30, strictMin: true }; case 'C': return { min: 30, max: 32, strictMin: true }; case 'D': return { min: 32, max: 34, strictMin: true }; case 'E': return { min: 34, max: 36, strictMin: true }; case 'F': return { min: 36, max: 38, strictMin: true }; case 'G': return { min: 38, max: 40, strictMin: true }; case 'H': return { min: 40, max: 42, strictMin: true }; case 'I': return { min: 42, max: 44, strictMin: true }; case 'J': return { min: 44, max: 46, strictMin: true }; case 'OPEN': case 'BEBAS': return { min: 64, max: 68, strictMin: true }; default: return { min:0, max:999, strictMin:false };}
+        } else if (cat.includes("PRA REMAJA")) {
+            switch(kelas) { case 'A': return { min: 30, max: 33, strictMin: false }; case 'B': return { min: 33, max: 36, strictMin: true }; case 'C': return { min: 36, max: 39, strictMin: true }; case 'D': return { min: 39, max: 42, strictMin: true }; case 'E': return { min: 42, max: 45, strictMin: true }; case 'F': return { min: 45, max: 48, strictMin: true }; case 'G': return { min: 48, max: 51, strictMin: true }; case 'H': return { min: 51, max: 54, strictMin: true }; case 'I': return { min: 54, max: 57, strictMin: true }; case 'OPEN': case 'BEBAS': return { min: 78, max: 84, strictMin: true }; default: return { min:0, max:999, strictMin:false };}
+        } else if (cat === "REMAJA") {
+            switch(kelas) { case 'A': return { min: 39, max: 43, strictMin: false }; case 'B': return { min: 43, max: 47, strictMin: true }; case 'C': return { min: 47, max: 51, strictMin: true }; case 'D': return { min: 51, max: 55, strictMin: true }; case 'E': return { min: 55, max: 59, strictMin: true }; case 'F': return { min: 59, max: 63, strictMin: true }; case 'G': return { min: 63, max: 67, strictMin: true }; case 'H': return { min: 67, max: 71, strictMin: true }; case 'OPEN': case 'BEBAS': return gender==='PUTRA'?{min:78,max:84,strictMin:true}:{min:79,max:94,strictMin:true}; default: return { min:0, max:999, strictMin:false };}
+        } else if (cat === "DEWASA") {
+            switch(kelas) { case 'A': return { min: 45, max: 50, strictMin: false }; case 'B': return { min: 50, max: 55, strictMin: true }; case 'C': return { min: 55, max: 60, strictMin: true }; case 'D': return { min: 60, max: 65, strictMin: true }; case 'E': return { min: 65, max: 70, strictMin: true }; case 'F': return { min: 70, max: 75, strictMin: true }; case 'G': return { min: 75, max: 80, strictMin: true }; case 'OPEN': case 'BEBAS': return gender==='PUTRA'?{min:95,max:110,strictMin:true}:{min:85,max:100,strictMin:true}; default: return { min:0, max:999, strictMin:false };}
+        }
+        return null; 
+    };
+
+    window.formatLimitText = function(limits) {
+        if(!limits) return "BEBAS";
+        const minSign = limits.strictMin ? "> " : "";
+        const maxText = limits.max === 999 ? "Kg Keatas" : `${limits.max} Kg`;
+        return `BATAS: ${minSign}${limits.min} - ${maxText}`;
+    };
+
+    window.autoValidate = function(partaiNum, sudut, cat, kelas, gender) {
+        const inputBerat = document.getElementById(`berat${sudut}_${partaiNum}`);
+        const selectStatus = document.getElementById(`status${sudut}_${partaiNum}`);
+        const berat = parseFloat(inputBerat.value);
+        const limits = getWeightLimits(cat, kelas, gender);
+
+        inputBerat.className = "input-tb bg-white text-slate-800";
+        selectStatus.className = "input-tb bg-white text-[10px] text-slate-500";
+
+        if (isNaN(berat)) { selectStatus.value = "BELUM"; return; }
+
+        if (limits) {
+            let isSah = limits.strictMin ? (berat > limits.min && berat <= limits.max) : (berat >= limits.min && berat <= limits.max);
+            if (isSah) {
+                selectStatus.value = "SAH";
+                inputBerat.className = "input-tb bg-emerald-50 border-emerald-500 text-emerald-700 shadow-[0_0_10px_rgba(16,185,129,0.2)]";
+                selectStatus.className = "input-tb bg-emerald-600 text-white text-[10px] border-emerald-700 shadow-md";
+            } else {
+                selectStatus.value = "TIDAK SAH";
+                inputBerat.className = "input-tb bg-rose-50 border-rose-500 text-rose-700 shadow-[0_0_10px_rgba(225,29,72,0.2)]";
+                selectStatus.className = "input-tb bg-rose-600 text-white text-[10px] border-rose-700 shadow-md";
+            }
+        }
+    };
+
+    // FUNGSI AKTIFKAN PARTAI KE LAYAR OFFICIAL
+    window.setActiveWeighIn = function(partaiNum) {
+        const refActive = ref(database, 'pencak_scoring_state/active_weighin_match');
+        set(refActive, partaiNum).then(() => {
+            Swal.fire({
+                icon: 'success',
+                title: 'Data Terkirim!',
+                text: `Partai ${partaiNum} telah diaktifkan ke layar Persetujuan Official.`,
+                timer: 2000,
+                showConfirmButton: false
+            });
+        }).catch(err => {
+            Swal.fire('Error', 'Gagal mengirim data: ' + err.message, 'error');
+        });
+    };
+
+    // Listener Realtime
+    onValue(dbRef, (snapshot) => {
+        const data = snapshot.val();
+        document.getElementById('loader').style.display = 'none';
+        
+        if (data && Array.isArray(data)) {
+            window.allMatches = data.filter(m => m && (m.b || m.m));
+            populateKelasDropdown();
+            renderMatches();
+        } else {
+            document.getElementById('matches-container').innerHTML = `
+                <div class="text-center p-10 bg-white rounded-2xl shadow-sm border border-slate-200 mt-10">
+                    <i class="fas fa-box-open text-4xl mb-3 text-slate-300 block"></i>
+                    <p class="text-slate-400 font-bold uppercase italic text-xs">Belum ada data partai / peserta.</p>
+                </div>`;
+        }
+    });
+
+    function populateKelasDropdown() {
+        const classes = [...new Set(window.allMatches.map(m => m.kelas))].filter(Boolean).sort();
+        const select = document.getElementById('f-kelas');
+        if (select.options.length <= 1) {
+            select.innerHTML = '<option value="SEMUA">Semua Kelas</option>' + 
+                classes.map(c => `<option value="${c}">${c}</option>`).join('');
+        }
+    }
+
+    window.renderMatches = function() {
+        const fCat = document.getElementById('f-cat').value;
+        const fKelas = document.getElementById('f-kelas').value;
+        const fGender = document.getElementById('f-gender').value;
+
+        const filteredMatches = window.allMatches.filter(m => {
+            return (fCat === 'SEMUA' || m.cat === fCat) &&
+                   (fKelas === 'SEMUA' || m.kelas === fKelas) &&
+                   (fGender === 'SEMUA' || m.gender === fGender);
+        });
+
+        document.getElementById('match-counter').innerText = `Total: ${filteredMatches.length} Partai`;
+        const container = document.getElementById('matches-container');
+
+        if(filteredMatches.length === 0) {
+            container.innerHTML = `<div class="text-center p-10 bg-white rounded-2xl border border-slate-200 mt-10 text-slate-400 font-bold uppercase italic text-xs">Tidak ada data ditemukan.</div>`;
+            return;
+        }
+
+        container.innerHTML = filteredMatches.map(m => {
+            const limitText = formatLimitText(getWeightLimits(m.cat, m.kelas, m.gender));
+            const beratB = m.beratB || ''; const statusB = m.statusB || 'BELUM';
+            const beratM = m.beratM || ''; const statusM = m.statusM || 'BELUM';
+            
+            const isByeB = (m.b === 'BYE' || !m.b);
+            const isByeM = (m.m === 'BYE' || !m.m);
+
+            // Cek Status Approval dari Firebase
+            const appB = m.officialApprovedB || false;
+            const appM = m.officialApprovedM || false;
+            
+            // Logika CLEAR: Jika (Biru Approved ATAU Biru BYE) DAN (Merah Approved ATAU Merah BYE)
+            const isClear = (appB || isByeB) && (appM || isByeM) && !(isByeB && isByeM);
+
+            const stColorB = statusB === 'SAH' ? 'bg-emerald-600 text-white border-emerald-700' : (statusB === 'TIDAK SAH' ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-500');
+            const stColorM = statusM === 'SAH' ? 'bg-emerald-600 text-white border-emerald-700' : (statusM === 'TIDAK SAH' ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-500');
+            const inColorB = statusB === 'SAH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : (statusB === 'TIDAK SAH' ? 'bg-rose-50 border-rose-500 text-rose-700' : 'bg-white text-slate-800');
+            const inColorM = statusM === 'SAH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : (statusM === 'TIDAK SAH' ? 'bg-rose-50 border-rose-500 text-rose-700' : 'bg-white text-slate-800');
+
+            // Badge Clear (Partai)
+            const clearBadge = isClear 
+                ? `<span class="bg-emerald-500 text-white px-2 py-1 rounded-md shadow-sm text-[10px] font-black tracking-widest border border-emerald-600 pulse-green ml-2"><i class="fas fa-check-double mr-1"></i> CLEAR</span>`
+                : `<span class="bg-slate-700 text-slate-400 px-2 py-1 rounded-md text-[10px] font-bold border border-slate-600 ml-2">BELUM CLEAR</span>`;
+
+            // Badge Approved (Peserta)
+            const badgeAppB = appB 
+                ? `<div class="mt-3 bg-emerald-100 text-emerald-700 border border-emerald-400 rounded-xl p-2 text-center text-[10px] font-black shadow-sm pulse-green transition-all"><i class="fas fa-signature mr-1"></i> TTD BIRU TERSIMPAN</div>`
+                : `<div class="mt-3 bg-slate-100 text-slate-400 border border-slate-300 rounded-xl p-2 text-center text-[10px] font-bold border-dashed transition-all"><i class="fas fa-clock mr-1"></i> Menunggu TTD Biru</div>`;
+                
+            const badgeAppM = appM 
+                ? `<div class="mt-3 bg-emerald-100 text-emerald-700 border border-emerald-400 rounded-xl p-2 text-center text-[10px] font-black shadow-sm pulse-green transition-all"><i class="fas fa-signature mr-1"></i> TTD MERAH TERSIMPAN</div>`
+                : `<div class="mt-3 bg-slate-100 text-slate-400 border border-slate-300 rounded-xl p-2 text-center text-[10px] font-bold border-dashed transition-all"><i class="fas fa-clock mr-1"></i> Menunggu TTD Merah</div>`;
+
+            return `
+            <div class="bg-white rounded-[1.5rem] shadow-md border border-slate-200 overflow-hidden flex flex-col transition-all hover:shadow-lg">
+                
+                <!-- Header Partai (dengan Tombol Timbang Aktif) -->
+                <div class="bg-slate-800 text-white p-3 md:p-4 flex flex-col md:flex-row justify-between items-start md:items-center border-b-4 border-slate-900 gap-3">
+                    <div class="flex items-center flex-wrap gap-2 w-full md:w-auto">
+                        <span class="text-[11px] font-black uppercase tracking-widest bg-sky-500 text-white px-3 py-1.5 rounded-md shadow-inner">Partai ${m.p}</span>
+                        ${clearBadge}
+                    </div>
+                    
+                    <div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                        <button onclick="setActiveWeighIn(${m.p})" class="bg-indigo-500 hover:bg-indigo-600 text-white text-[10px] font-black px-4 py-2 rounded-lg shadow-md flex items-center gap-2 transition-all active:scale-95 border border-indigo-700">
+                            <i class="fas fa-broadcast-tower animate-pulse"></i> TIMBANG PARTAI INI
+                        </button>
+                        <div class="text-right hidden md:block">
+                            <span class="text-[9px] font-bold uppercase opacity-90 block">${m.fase} - KELAS ${m.kelas} ${m.cat} ${m.gender}</span>
+                            <span class="text-[8px] font-black text-amber-400 tracking-wider">${limitText}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Keterangan Limit Berat Mobile -->
+                <div class="md:hidden bg-slate-700 px-4 py-2 text-center">
+                    <span class="text-[9px] font-bold uppercase opacity-90 text-white block">${m.fase} - KELAS ${m.kelas} ${m.cat} ${m.gender}</span>
+                    <span class="text-[9px] font-black text-amber-400 tracking-wider">${limitText}</span>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2">
+                    <!-- Sudut Biru -->
+                    <div class="p-5 border-b md:border-b-0 md:border-r border-slate-100 bg-blue-50/20 relative flex flex-col">
+                        <div class="absolute top-0 left-0 w-1.5 h-full bg-blue-600"></div>
+                        
+                        ${!isByeB ? `
+                        <div class="flex items-center gap-3 mb-4">
+                            <img src="${m.fotoB || m.photoB || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(m.b) + '&background=2563eb&color=fff&size=128&bold=true'}" alt="Foto" class="w-12 h-12 rounded-full border-2 border-blue-500 shadow-sm object-cover bg-white">
+                            <div>
+                                <h3 class="text-sm font-black uppercase text-blue-700 leading-tight mb-1">${m.b}</h3>
+                                <p class="text-[9px] font-bold text-slate-500 uppercase">${m.kb}</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3 items-end mb-4">
+                            <div class="flex-[1.5]">
+                                <label class="text-[9px] font-black text-slate-400 uppercase mb-1 block">Timbangan (Kg)</label>
+                                <input type="number" id="beratB_${m.p}" value="${beratB}" placeholder="00.0" step="0.1" 
+                                       onkeyup="autoValidate('${m.p}', 'B', '${m.cat}', '${m.kelas}', '${m.gender}')"
+                                       onchange="autoValidate('${m.p}', 'B', '${m.cat}', '${m.kelas}', '${m.gender}')"
+                                       class="input-tb ${beratB ? inColorB : 'bg-white text-slate-800 text-lg'}">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[9px] font-black text-slate-400 uppercase mb-1 block">Status</label>
+                                <select id="statusB_${m.p}" class="input-tb text-[10px] ${stColorB}">
+                                    <option value="BELUM" ${statusB==='BELUM'?'selected':''}>BELUM</option>
+                                    <option value="SAH" ${statusB==='SAH'?'selected':''}>SAH</option>
+                                    <option value="TIDAK SAH" ${statusB==='TIDAK SAH'?'selected':''}>TIDAK SAH</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="saveWeighIn(${m.p}, 'B')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] py-3 rounded-xl uppercase shadow active:scale-95 transition-all"><i class="fas fa-save mr-1"></i> Update Biru</button>
+                        ${badgeAppB}
+                        ` : `
+                        <h3 class="text-sm font-black uppercase text-blue-700 leading-tight mb-1">BYE</h3>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase mb-4">-</p>
+                        <div class="text-center text-[10px] font-bold text-slate-400 italic py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex-1 flex items-center justify-center">Peserta Kosong (BYE)</div>
+                        `}
+                    </div>
+
+                    <!-- Sudut Merah -->
+                    <div class="p-5 bg-red-50/20 relative flex flex-col">
+                        <div class="absolute top-0 right-0 md:left-0 w-1.5 h-full bg-red-600"></div>
+                        
+                        ${!isByeM ? `
+                        <div class="flex items-center gap-3 mb-4 flex-row-reverse md:flex-row">
+                            <img src="${m.fotoM || m.photoM || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(m.m) + '&background=dc2626&color=fff&size=128&bold=true'}" alt="Foto" class="w-12 h-12 rounded-full border-2 border-red-500 shadow-sm object-cover bg-white">
+                            <div class="text-right md:text-left">
+                                <h3 class="text-sm font-black uppercase text-red-700 leading-tight mb-1">${m.m}</h3>
+                                <p class="text-[9px] font-bold text-slate-500 uppercase">${m.km}</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3 items-end mb-4 flex-row-reverse md:flex-row">
+                            <div class="flex-[1.5]">
+                                <label class="text-[9px] font-black text-slate-400 uppercase mb-1 block text-right md:text-left">Timbangan (Kg)</label>
+                                <input type="number" id="beratM_${m.p}" value="${beratM}" placeholder="00.0" step="0.1" 
+                                       onkeyup="autoValidate('${m.p}', 'M', '${m.cat}', '${m.kelas}', '${m.gender}')"
+                                       onchange="autoValidate('${m.p}', 'M', '${m.cat}', '${m.kelas}', '${m.gender}')"
+                                       class="input-tb ${beratM ? inColorM : 'bg-white text-slate-800 text-lg'}">
+                            </div>
+                            <div class="flex-1 text-right md:text-left">
+                                <label class="text-[9px] font-black text-slate-400 uppercase mb-1 block">Status</label>
+                                <select id="statusM_${m.p}" class="input-tb text-[10px] ${stColorM}">
+                                    <option value="BELUM" ${statusM==='BELUM'?'selected':''}>BELUM</option>
+                                    <option value="SAH" ${statusM==='SAH'?'selected':''}>SAH</option>
+                                    <option value="TIDAK SAH" ${statusM==='TIDAK SAH'?'selected':''}>TIDAK SAH</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="saveWeighIn(${m.p}, 'M')" class="w-full bg-red-600 hover:bg-red-700 text-white font-black text-[10px] py-3 rounded-xl uppercase shadow active:scale-95 transition-all"><i class="fas fa-save mr-1"></i> Update Merah</button>
+                        ${badgeAppM}
+                        ` : `
+                        <h3 class="text-sm font-black uppercase text-red-700 leading-tight mb-1 text-right md:text-left">BYE</h3>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase mb-4 text-right md:text-left">-</p>
+                        <div class="text-center text-[10px] font-bold text-slate-400 italic py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex-1 flex items-center justify-center">Peserta Kosong (BYE)</div>
+                        `}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    window.saveWeighIn = function(partaiNum, sudut) {
+        const arrayIdx = partaiNum - 1; 
+        const matchRef = ref(database, `pencak_scoring_state/matches/${arrayIdx}`);
+        let updateData = {};
+
+        if (sudut === 'B') {
+            updateData = { 
+                beratB: document.getElementById(`beratB_${partaiNum}`).value, 
+                statusB: document.getElementById(`statusB_${partaiNum}`).value 
+            };
+        } else {
+            updateData = { 
+                beratM: document.getElementById(`beratM_${partaiNum}`).value, 
+                statusM: document.getElementById(`statusM_${partaiNum}`).value 
+            };
+        }
+
+        const m = window.allMatches.find(x => x.p === partaiNum);
+        if(m) {
+            set(matchRef, { ...m, ...updateData }).then(() => {
+                showNotif();
+            }).catch(err => alert('Gagal: ' + err.message));
+        }
+    };
+
+    window.showNotif = function() { 
+        const n = document.getElementById('save-ani'); 
+        n.classList.add('show'); setTimeout(() => n.classList.remove('show'), 2000); 
+    }
+
+    // Ekspor PDF Diperbarui agar stabil, tabel tidak terpotong, proporsi rapi.
+    window.exportPDF = function() {
+        const fCat = document.getElementById('f-cat').value;
+        const fKelas = document.getElementById('f-kelas').value;
+        const fGender = document.getElementById('f-gender').value;
+
+        const filtered = window.allMatches.filter(m => 
+            (fCat === 'SEMUA' || m.cat === fCat) &&
+            (fKelas === 'SEMUA' || m.kelas === fKelas) &&
+            (fGender === 'SEMUA' || m.gender === fGender)
+        );
+
+        if (filtered.length === 0) return alert("Tidak ada data untuk dicetak.");
+
+        document.getElementById('pdf-filter-info').innerText = `FILTER: Usia ${fCat} | Kelas ${fKelas} | ${fGender}`;
+
+        const tbody = document.getElementById('pdf-table-body');
+        tbody.innerHTML = filtered.map(m => {
+            const limitText = formatLimitText(getWeightLimits(m.cat, m.kelas, m.gender));
+            const bTxt = (m.b && m.b !== 'BYE') ? `
+                <div style="display: flex; align-items: center; gap: 8px; text-align: left; overflow: hidden;">
+                    <img src="${m.fotoB || m.photoB || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(m.b) + '&background=2563eb&color=fff&size=64&bold=true'}" style="width: 35px; height: 35px; min-width: 35px; border-radius: 50%; object-fit: cover;" crossorigin="anonymous">
+                    <div style="word-break: break-word; line-height: 1.2;">
+                        <strong>${m.b}</strong><br><span style="font-size:9px;">${m.kb}</span><br>Brt: ${m.beratB||'-'} Kg | Sts: <span class="${m.statusB==='SAH'?'status-sah':(m.statusB==='TIDAK SAH'?'status-gagal':'')}">${m.statusB||'BELUM'}</span>
+                    </div>
+                </div>` : 'BYE';
+            
+            const mTxt = (m.m && m.m !== 'BYE') ? `
+                <div style="display: flex; align-items: center; gap: 8px; text-align: left; overflow: hidden;">
+                    <img src="${m.fotoM || m.photoM || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(m.m) + '&background=dc2626&color=fff&size=64&bold=true'}" style="width: 35px; height: 35px; min-width: 35px; border-radius: 50%; object-fit: cover;" crossorigin="anonymous">
+                    <div style="word-break: break-word; line-height: 1.2;">
+                        <strong>${m.m}</strong><br><span style="font-size:9px;">${m.km}</span><br>Brt: ${m.beratM||'-'} Kg | Sts: <span class="${m.statusM==='SAH'?'status-sah':(m.statusM==='TIDAK SAH'?'status-gagal':'')}">${m.statusM||'BELUM'}</span>
+                    </div>
+                </div>` : 'BYE';
+
+            let parafContent = "";
+            if (m.officialApprovedB && m.b && m.b !== 'BYE') {
+                parafContent += `<div style="color: #1d4ed8; font-weight: 900; font-size: 10px; margin-bottom: 4px;">[ APPROVED BIRU ]</div>`;
+            }
+            if (m.officialApprovedM && m.m && m.m !== 'BYE') {
+                parafContent += `<div style="color: #b91c1c; font-weight: 900; font-size: 10px;">[ APPROVED MERAH ]</div>`;
+            }
+            
+            return `<tr>
+                <td style="font-weight: bold; font-size:12px;">${m.p}</td>
+                <td style="font-size:9px; font-weight:bold; line-height: 1.3;">${m.fase}<br>${m.kelas} ${m.cat}<br>${m.gender}<br><span style="color:#d97706; font-size:8px;">${limitText}</span></td>
+                <td style="text-align:left;">${bTxt}</td>
+                <td style="text-align:left;">${mTxt}</td>
+                <td style="text-align:center; vertical-align:middle;">${parafContent}</td>
+            </tr>`;
+        }).join('');
+
+        const container = document.getElementById('print-section');
+        const element = document.getElementById('pdf-content');
+        
+        // Tampilkan container untuk capture gambar
+        container.style.display = 'block'; 
+        container.style.left = '0'; // Pindahkan ke viewport untuk render sementara
+        container.style.zIndex = '-1000'; // Biarkan di bawah elemen normal
+
+        const opt = { 
+            margin: [5, 5, 5, 5], 
+            filename: `Laporan_Timbang_Badan.pdf`, 
+            image: { type: 'jpeg', quality: 0.98 }, 
+            html2canvas: { 
+                scale: 2, 
+                useCORS: true, 
+                windowWidth: 1122 // Memaksa render DOM setara ukuran A4 Landscape
+            }, 
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            // Kembalikan seperti semula
+            container.style.display = 'none';
+            container.style.left = '-9999px';
+        });
+    };
+</script>
+</body>
+</html>
